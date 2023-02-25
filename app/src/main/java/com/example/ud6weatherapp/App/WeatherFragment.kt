@@ -12,7 +12,9 @@ import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.annotation.RequiresApi
@@ -20,6 +22,7 @@ import androidx.constraintlayout.motion.widget.Debug.getLocation
 import androidx.core.app.ActivityCompat
 import androidx.core.location.LocationManagerCompat.isLocationEnabled
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.ud6weatherapp.R
@@ -48,94 +51,58 @@ class WeatherFragment : Fragment(R.layout.fragment_weather) {
     val myArray = arrayOfNulls<Double>(2)
     private var latitude: Double? = null
     private var longitude: Double? = null
+    private lateinit var viewModel: WeatherViewModel
 
 
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        (activity as? AppCompatActivity)?.supportActionBar?.title = getString(R.string.app_name)
-        mFusedLocationClient = LocationServices.getFusedLocationProviderClient(requireContext())
+        ApiRest.initService()
+        viewModel = ViewModelProvider(this).get(WeatherViewModel::class.java)
 
-        //getLocation()
         val location = getLocation()
 
         if (location != null) {
             latitude = location.first
-            Log.i("Array",latitude.toString())
+            Log.i("Array", latitude.toString())
             longitude = location.second
-            Log.i("Array",longitude.toString())
+            Log.i("Array", longitude.toString())
         }
 
-        ApiRest.initService()
-        getWeather(latitude!!, longitude!!)
-
-        RVWeather = view.findViewById<RecyclerView>(R.id.RVWeather)
-        //Mostrar como cuadricula
-        val mLayoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
-        RVWeather.layoutManager = mLayoutManager
-
-        adapter = WeatherAdapter(data) {}
-        RVWeather.adapter = adapter
+        viewModel.getCurrentWeather(latitude!!, longitude!!)
 
 
-    }
+        viewModel.currentWeatherLiveData.observe(viewLifecycleOwner) { currentWeather ->
+            val TextGrados = view.findViewById<TextView>(R.id.GradosMain)
+            val Hora = view.findViewById<TextView>(R.id.TimeTexto)
+            val TxtViento = view.findViewById<TextView>(R.id.TextViento)
+            val TxtHumedad = view.findViewById<TextView>(R.id.TextHumedad)
+            val TxtSensacion = view.findViewById<TextView>(R.id.TextSensacion)
+            val TxtLugar = view.findViewById<TextView>(R.id.LugarTexto)
+            val ImagenMain = view.findViewById<ImageView>(R.id.ActualImage)
 
-    private fun getWeather(latitud: Double, longitud: Double) {
-        val call = ApiRest.service.getWeatherData(latitud, longitud)
-        call.enqueue(object : Callback<OpenWeatherResponse> {
-            @RequiresApi(Build.VERSION_CODES.O)
-            override fun onResponse(
-                call: Call<OpenWeatherResponse>,
-                response: Response<OpenWeatherResponse>
-            ) {
-                val body = response.body()
-                if (response.isSuccessful && body != null) {
-                    Log.i(TAG, "Entro!")
-                    data.clear()
-                    data.addAll(body.daily)
-                    adapter?.notifyDataSetChanged()
-                    val TextGrados = view?.findViewById<TextView>(R.id.GradosMain)
-                    val Hora = view?.findViewById<TextView>(R.id.TimeTexto)
-                    val TxtViento = view?.findViewById<TextView>(R.id.TextViento)
-                    val TxtHumedad = view?.findViewById<TextView>(R.id.TextHumedad)
-                    val TxtSensacion = view?.findViewById<TextView>(R.id.TextSensacion)
-                    val TxtLugar = view?.findViewById<TextView>(R.id.LugarTexto)
-                    //val TextHumedad = view?.findViewById<TextView>(R.id.HumedadText)
-                    var ImagenMain = view?.findViewById<ImageView>(R.id.ActualImage)
-                    val temperatura = body.current.temp.toInt().toString()
-                    val humedad = body.current.humidity.toString()
-                    val velocidad = body.current.windSpeed.toString()
-                    val sensacion = body.current.feelsLike.toInt().toString()
-                    val hora = unixTimeToCurrentTime(body.current.dt.toLong())
-                    val imagen = body.current.weather.get(0).icon
-                    val lugar = body.timezone
+            TextGrados.text = currentWeather.temperatura + "º"
+            Hora.text = currentWeather.hora
+            TxtViento.text = currentWeather.velocidad + " Km/h"
+            TxtHumedad.text = currentWeather.humedad + "%"
+            TxtSensacion.text = currentWeather.sensacion + "º"
+            TxtLugar.text = currentWeather.lugar
+            data = currentWeather.data
+            Log.i("DATA", data.toString())
 
-                    Picasso.get().load("https://openweathermap.org/img/wn/" + imagen + "@2x.png")
-                        .into(ImagenMain)
-                    Hora?.text = hora
-                    TextGrados?.text = temperatura + "º"
-                    TxtHumedad?.text = humedad + "%"
-                    TxtViento?.text = velocidad + " Km/h"
-                    TxtSensacion?.text = sensacion + "º"
-                    TxtLugar?.text = lugar
-                    // Imprimir aqui el listado con logs
-                    // Log.d(TAG, body.toString())
-                } else {
-                    Log.e(TAG, response.errorBody()?.string() ?: "Error")
-                }
-            }
+            Picasso.get()
+                .load("https://openweathermap.org/img/wn/" + currentWeather.imagen + "@2x.png")
+                .into(ImagenMain)
 
-            override fun onFailure(call: Call<OpenWeatherResponse>, t: Throwable) {
-                Log.e(TAG, t.message.toString())
-            }
-        })
-    }
+            RVWeather = view.findViewById<RecyclerView>(R.id.RVWeather)
+            //Mostrar como cuadricula
+            val mLayoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
+            RVWeather.layoutManager = mLayoutManager
 
-    @RequiresApi(Build.VERSION_CODES.O)
-    fun unixTimeToCurrentTime(unixTime: Long): String {
-        val dateTime = LocalDateTime.ofEpochSecond(unixTime, 0, ZoneOffset.UTC)
-        val newDateTime = dateTime.plusHours(1)
-        val formatter = DateTimeFormatter.ofPattern("d 'de' MMMM, HH:mm", Locale("es"))
-        return newDateTime.format(formatter)
+            adapter = WeatherAdapter(data) {}
+            Log.i("DATA2", data.toString())
+            RVWeather.adapter = adapter
+        }
     }
 
 
@@ -162,7 +129,10 @@ class WeatherFragment : Fragment(R.layout.fragment_weather) {
                 })
 
             val location = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            return if (location != null) Pair(location.latitude, location.longitude) else Pair(40.3,-3.7)
+            return if (location != null) Pair(location.latitude, location.longitude) else Pair(
+                40.3,
+                -3.7
+            )
         } else {
             ActivityCompat.requestPermissions(
                 requireActivity(),
